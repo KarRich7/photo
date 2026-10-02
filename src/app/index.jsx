@@ -25,18 +25,77 @@ const formatBytes = (bytes) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 };
 
+// Асинхронное получение локального воспроизводимого файла видео в песочницу приложения
+const resolveVideoAsset = async (asset) => {
+  if (!asset || asset.mediaType !== 'video') return null;
+  if (asset.localUri) return asset.localUri;
+
+  try {
+    const info = await MediaLibrary.getAssetInfoAsync(asset.id, { shouldDownloadFromNetwork: true });
+    if (info && info.localUri) {
+      const safeId = (asset.id || 'v').replace(/[^a-zA-Z0-9]/g, '_');
+      const cachePath = `${FileSystem.cacheDirectory}v_${safeId}.mov`;
+      try {
+        const fileInfo = await FileSystem.getInfoAsync(cachePath);
+        if (!fileInfo.exists) {
+          await FileSystem.copyAsync({ from: info.localUri, to: cachePath });
+        }
+        asset.localUri = cachePath;
+        return cachePath;
+      } catch (copyErr) {
+        asset.localUri = info.localUri;
+        return info.localUri;
+      }
+    }
+  } catch (err) {
+    console.log('Error resolving video asset info:', err);
+  }
+  return null;
+};
+
 // Отдельный компонент для корректной работы видеоплеера в карусели
-function SwiperVideoItem({ uri, isMuted }) {
+function SwiperVideoItem({ card, isMuted }) {
+  const [playableUri, setPlayableUri] = useState(card?.localUri || null);
   const [isPlaying, setIsPlaying] = useState(true);
 
-  const player = useVideoPlayer(uri, (playerInstance) => {
+  useEffect(() => {
+    let isMounted = true;
+    async function prepareVideo() {
+      if (card?.localUri) {
+        if (isMounted) setPlayableUri(card.localUri);
+        return;
+      }
+      const uri = await resolveVideoAsset(card);
+      if (isMounted && uri) {
+        setPlayableUri(uri);
+      }
+    }
+    prepareVideo();
+    return () => {
+      isMounted = false;
+    };
+  }, [card?.id]);
+
+  const player = useVideoPlayer(playableUri, (playerInstance) => {
     playerInstance.loop = true;
     playerInstance.muted = isMuted;
     try {
       playerInstance.audioMixingMode = 'mixWithOthers';
     } catch (e) {}
-    playerInstance.play();
+    if (playableUri) {
+      playerInstance.play();
+    }
   });
+
+  // Запуск и замена источника при готовности локального пути
+  useEffect(() => {
+    if (player && playableUri) {
+      try {
+        player.replace(playableUri);
+        player.play();
+      } catch (e) {}
+    }
+  }, [player, playableUri]);
 
   // Автозапуск при готовности к воспроизведению и отслеживание статуса
   useEffect(() => {
@@ -88,13 +147,20 @@ function SwiperVideoItem({ uri, isMuted }) {
       style={styles.cardImage}
       onPress={togglePlay}
     >
-      <VideoView
-        style={styles.cardImage}
-        player={player}
-        allowsFullscreen={false}
-        nativeControls={false}
+      <Image
+        source={{ uri: card.uri }}
+        style={StyleSheet.absoluteFillObject}
         contentFit="cover"
       />
+      {playableUri && (
+        <VideoView
+          style={StyleSheet.absoluteFillObject}
+          player={player}
+          allowsFullscreen={false}
+          nativeControls={false}
+          contentFit="cover"
+        />
+      )}
       {!isPlaying && (
         <View style={styles.videoPausedOverlay} pointerEvents="none">
           <Ionicons name="play" size={54} color="rgba(255, 255, 255, 0.9)" />
@@ -281,6 +347,14 @@ export default function HomeScreen() {
 
         const finalPhotos = selectedAssets.slice(0, limit);
         setPhotos(finalPhotos);
+
+        // Фоновая предварительная подготовка видеофайлов для первых карточек
+        finalPhotos
+          .filter((a) => a.mediaType === 'video')
+          .slice(0, 3)
+          .forEach((v) => {
+            resolveVideoAsset(v);
+          });
       } catch (err) {
         console.log('Ошибка загрузки медиа', err);
       }
@@ -638,7 +712,7 @@ export default function HomeScreen() {
                   style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.cardBorder }]}
                 >
                   {isVideo ? (
-                    <SwiperVideoItem key={card.id || card.uri} uri={card.uri} isMuted={isVideoMuted} />
+                    <SwiperVideoItem key={card.id || card.uri} card={card} isMuted={isVideoMuted} />
                   ) : (
                     <Image source={{ uri: card.uri }} style={styles.cardImage} contentFit="cover" />
                   )}
