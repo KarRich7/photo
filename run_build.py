@@ -4,6 +4,7 @@ import glob
 import shutil
 import subprocess
 import plistlib
+import re
 
 def run(cmd, cwd=None, env=None):
     print(f"\n▶ [STEP] {cmd}")
@@ -67,6 +68,7 @@ run("npx expo prebuild --platform ios --clean")
 print("\n🩹 Проверка Storyboard и настройка нативного UILaunchScreen...")
 
 # 5.1. Удаляем физические файлы storyboard
+# 5.1. Удаляем физические файлы storyboard
 for root, _, files in os.walk("ios"):
     for file in files:
         if file.endswith(".storyboard"):
@@ -74,45 +76,54 @@ for root, _, files in os.walk("ios"):
             os.remove(sb_path)
             print(f"🗑 Удален файл storyboard: {sb_path}")
 
-# 5.2. Безопасно очищаем ссылки на storyboard в Xcode проекте через встроенный парсер Node
+# 5.2. Полностью вырезаем SplashScreen из project.pbxproj, чтобы Xcode не искал его и не вызывал ibtool
+def clean_pbxproj_storyboard(content):
+    # Находим ID вариантов из PBXVariantGroup
+    variant_children = set()
+    for m in re.finditer(r'([0-9A-Fa-f]{24})\s*/\*\s*SplashScreen\.storyboard\s*\*/\s*=\s*\{[^}]*isa\s*=\s*PBXVariantGroup;[^}]*children\s*=\s*\(([^)]*)\);', content):
+        for cid in re.findall(r'([0-9A-Fa-f]{24})', m.group(2)):
+            variant_children.add(cid)
+
+    lines = content.splitlines(True)
+    new_lines = []
+    skip_block = False
+    brace_depth = 0
+
+    for line in lines:
+        if not skip_block:
+            # Пропускаем блоки SplashScreen и его дочерних вариантов
+            if ("SplashScreen.storyboard" in line or any(cid in line for cid in variant_children)) and ("=" in line and "{" in line):
+                skip_block = True
+                brace_depth = line.count("{") - line.count("}")
+                if brace_depth <= 0:
+                    skip_block = False
+                continue
+
+            # Пропускаем ссылки внутри массивов files и children
+            if "SplashScreen.storyboard" in line or any(cid in line for cid in variant_children):
+                continue
+
+            new_lines.append(line)
+        else:
+            brace_depth += line.count("{") - line.count("}")
+            if brace_depth <= 0:
+                skip_block = False
+            continue
+
+    result = "".join(new_lines)
+    result = re.sub(r'UILaunchStoryboardName\s*=\s*[^;]+;', 'UILaunchStoryboardName = "";', result)
+    return result
+
 for root, _, files in os.walk("ios"):
     if "project.pbxproj" in files:
-        pbx_path = os.path.join(root, "project.pbxproj").replace("\\", "/")
-        node_script = f"""
-const fs = require('fs');
-let parsed = false;
-try {{
-    let xcodeModule;
-    try {{
-        xcodeModule = require('@expo/config-plugins/node_modules/xcode');
-    }} catch (e) {{
-        xcodeModule = require('xcode');
-    }}
-    if (xcodeModule) {{
-        const project = xcodeModule.project('{pbx_path}');
-        project.parseSync();
-        project.removeResourceFile('SplashScreen.storyboard');
-        fs.writeFileSync('{pbx_path}', project.writeSync());
-        console.log('✅ SplashScreen.storyboard удален из pbxproj через официальный парсер Xcode');
-        parsed = true;
-    }}
-}} catch (err) {{
-    // fallback
-}}
-
-if (!parsed) {{
-    let content = fs.readFileSync('{pbx_path}', 'utf8');
-    content = content.replace(/UILaunchStoryboardName = [^;]+;/g, 'UILaunchStoryboardName = "";');
-    fs.writeFileSync('{pbx_path}', content);
-    console.log('✅ UILaunchStoryboardName очищен в {pbx_path}');
-}}
-"""
-        try:
-            res = subprocess.run(["node", "-e", node_script], capture_output=True, text=True)
-            if res.stdout:
-                print(res.stdout.strip())
-        except Exception as e:
-            print(f"⚠️ Ошибка обработки project.pbxproj: {e}")
+        pbx_path = os.path.join(root, "project.pbxproj")
+        with open(pbx_path, "r", encoding="utf-8") as f:
+            pbx_data = f.read()
+        
+        cleaned_pbx = clean_pbxproj_storyboard(pbx_data)
+        with open(pbx_path, "w", encoding="utf-8") as f:
+            f.write(cleaned_pbx)
+        print(f"✅ SplashScreen полностью удален из {pbx_path} (Xcode не будет запускать ibtool)")
 
 # 5.3. Безопасная настройка Info.plist через plistlib (нативный UILaunchScreen)
 for root, _, files in os.walk("ios"):
