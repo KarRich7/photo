@@ -26,19 +26,60 @@ const formatBytes = (bytes) => {
 };
 
 // Отдельный компонент для корректной работы видеоплеера в карусели
-function SwiperVideoItem({ uri, isMuted }) {
-  const player = useVideoPlayer(uri, (playerInstance) => {
+function SwiperVideoItem({ asset, uri, isMuted }) {
+  const initialUri = asset?.localUri || (uri && !uri.startsWith('ph://') ? uri : null);
+  const [playableUri, setPlayableUri] = useState(initialUri);
+
+  const targetAsset = asset || (uri ? { uri } : null);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function resolveLocalUri() {
+      if (asset?.localUri) {
+        setPlayableUri(asset.localUri);
+        return;
+      }
+      if (!targetAsset) return;
+      try {
+        const info = await MediaLibrary.getAssetInfoAsync(targetAsset);
+        if (isMounted) {
+          const resolved = info?.localUri || targetAsset?.uri;
+          if (asset) asset.localUri = resolved;
+          setPlayableUri(resolved);
+        }
+      } catch (e) {
+        if (isMounted && targetAsset?.uri) {
+          setPlayableUri(targetAsset.uri);
+        }
+      }
+    }
+
+    resolveLocalUri();
+    return () => {
+      isMounted = false;
+    };
+  }, [asset?.id, uri]);
+
+  const player = useVideoPlayer(playableUri || null, (playerInstance) => {
     playerInstance.loop = true;
     playerInstance.muted = isMuted;
-    playerInstance.play();
+    if (playableUri) {
+      playerInstance.play();
+    }
   });
 
-  // Обновляем состояние звука при переключении кнопки
+  // Обновляем состояние звука и источника при изменении
   useEffect(() => {
     if (player) {
       player.muted = isMuted;
+      if (playableUri) {
+        if (player.replace) {
+          player.replace(playableUri);
+        }
+        player.play();
+      }
     }
-  }, [isMuted, player]);
+  }, [isMuted, player, playableUri]);
 
   return (
     <VideoView
@@ -132,26 +173,115 @@ export default function HomeScreen() {
     if (hasPermission) {
       setCurrentScreen('swipe');
 
-      let options = {
-        first: limit,
-        mediaType: mode.type === 'video' ? 'video' : ['photo', 'video'],
-        sortBy: ['creationTime'],
-      };
-
-      if (mode.type === 'album') {
-        options.album = mode.id;
-      }
+      const mediaType = mode.type === 'video' ? 'video' : ['photo', 'video'];
+      const album = mode.type === 'album' ? mode.id : undefined;
 
       try {
-        const media = await MediaLibrary.getAssetsAsync(options);
-        let processedAssets = [...media.assets];
+        // Проверяем общее количество медиафайлов
+        const countCheck = await MediaLibrary.getAssetsAsync({
+          first: 1,
+          mediaType,
+          album,
+        });
+        const totalCount = countCheck.totalCount || 0;
 
-        for (let i = processedAssets.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [processedAssets[i], processedAssets[j]] = [processedAssets[j], processedAssets[i]];
+        let selectedAssets = [];
+
+        if (totalCount <= limit) {
+          const res = await MediaLibrary.getAssetsAsync({
+            first: Math.max(1, totalCount),
+            mediaType,
+            album,
+          });
+          selectedAssets = [...res.assets];
+        } else if (totalCount <= 1200) {
+          const res = await MediaLibrary.getAssetsAsync({
+            first: totalCount,
+            mediaType,
+            album,
+          });
+          selectedAssets = [...res.assets];
+        } else {
+          // Для больших галерей: запрашиваем диапазон дат от самых старых до самых новых
+          const [newestRes, oldestRes] = await Promise.all([
+            MediaLibrary.getAssetsAsync({ first: 1, mediaType, album, sortBy: [['creationTime', false]] }),
+            MediaLibrary.getAssetsAsync({ first: 1, mediaType, album, sortBy: [['creationTime', true]] }),
+          ]);
+
+          const newestTime = newestRes.assets[0]?.creationTime || Date.now();
+          const oldestTime = oldestRes.assets[0]?.creationTime || (newestTime - 5 * 365 * 24 * 3600 * 1000);
+          const timeSpan = Math.max(1000, newestTime - oldestTime);
+
+          // Генерируем 8-10 случайных временных срезов по всей истории
+          const slicesCount = Math.min(10, Math.max(5, Math.ceil(limit / 20)));
+          const batchSize = Math.ceil((limit * 1.8) / slicesCount);
+
+          const randomTimestamps = [];
+          for (let s = 0; s < slicesCount; s++) {
+            const randOffset = Math.random() * timeSpan;
+            randomTimestamps.push(oldestTime + randOffset);
+          }
+
+          const slicePromises = randomTimestamps.map((t) =>
+            MediaLibrary.getAssetsAsync({
+              first: batchSize,
+              mediaType,
+              album,
+              createdBefore: t,
+              sortBy: ['creationTime'],
+            })
+          );
+
+          const sliceResults = await Promise.all(slicePromises);
+          const idMap = new Map();
+
+          for (const sRes of sliceResults) {
+            for (const asset of sRes.assets) {
+              if (!idMap.has(asset.id)) {
+                idMap.set(asset.id, asset);
+              }
+            }
+          }
+
+          selectedAssets = Array.from(idMap.values());
+
+          // Добираем при необходимости из общего пула
+          if (selectedAssets.length < limit) {
+            const fallback = await MediaLibrary.getAssetsAsync({
+              first: limit,
+              mediaType,
+              album,
+            });
+            for (const asset of fallback.assets) {
+              if (!idMap.has(asset.id)) {
+                idMap.set(asset.id, asset);
+              }
+            }
+            selectedAssets = Array.from(idMap.values());
+          }
         }
 
-        setPhotos(processedAssets);
+        // Перемешивание по алгоритму Фишера-Йетса
+        for (let i = selectedAssets.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [selectedAssets[i], selectedAssets[j]] = [selectedAssets[j], selectedAssets[i]];
+        }
+
+        const finalPhotos = selectedAssets.slice(0, limit);
+
+        // Предварительно разрешаем localUri для первых видео в очереди
+        finalPhotos.slice(0, 5).forEach(async (asset) => {
+          if (asset.mediaType === 'video' && !asset.localUri) {
+            try {
+              const info = await MediaLibrary.getAssetInfoAsync(asset);
+              if (info?.localUri) {
+                asset.localUri = info.localUri;
+              }
+            } catch (e) {}
+          }
+        });
+
+        setPhotos(finalPhotos);
       } catch (err) {
         console.log('Ошибка загрузки медиа', err);
       }
@@ -506,7 +636,7 @@ export default function HomeScreen() {
               return (
                 <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.cardBorder }]}>
                   {isVideo ? (
-                    <SwiperVideoItem uri={card.uri} isMuted={isVideoMuted} />
+                    <SwiperVideoItem asset={card} uri={card.uri} isMuted={isVideoMuted} />
                   ) : (
                     <Image source={{ uri: card.uri }} style={styles.cardImage} contentFit="cover" />
                   )}
