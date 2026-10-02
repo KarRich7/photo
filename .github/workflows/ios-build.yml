@@ -20,10 +20,10 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      - name: 🛠 Настройка стабильного Xcode 16.0
+      - name: 🛠 Настройка проверенного Xcode 15.4
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16.0'
+          xcode-version: '15.4'
 
       - name: 🚀 Запуск сборки IPA
         run: python3 run_build.py
