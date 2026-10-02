@@ -15,19 +15,24 @@ def run(cmd, cwd=None, env=None):
 
 print("🚀 Старт сборки iOS IPA для PhotoDrop...")
 
-# 1. Выбор и настройка Xcode 16 (с поддержкой DEVELOPER_DIR для предотвращения ошибок ibtool)
-xcode_candidates = [
-    "/Applications/Xcode_16.2.app/Contents/Developer",
-    "/Applications/Xcode_16.1.app/Contents/Developer",
-    "/Applications/Xcode_16.0.app/Contents/Developer",
-    "/Applications/Xcode.app/Contents/Developer"
-]
-
-selected_developer_dir = None
-for candidate in xcode_candidates:
-    if os.path.exists(candidate):
-        selected_developer_dir = candidate
-        break
+# 1. Выбор и настройка Xcode (с приоритетом для DEVELOPER_DIR из GitHub Action)
+current_dev_dir = os.environ.get("DEVELOPER_DIR")
+if current_dev_dir and os.path.exists(current_dev_dir):
+    selected_developer_dir = current_dev_dir
+    print(f"🍏 Используется предустановленный DEVELOPER_DIR: {selected_developer_dir}")
+else:
+    xcode_candidates = [
+        "/Applications/Xcode_16.0.app/Contents/Developer",
+        "/Applications/Xcode_16.1.app/Contents/Developer",
+        "/Applications/Xcode_15.4.app/Contents/Developer",
+        "/Applications/Xcode_16.2.app/Contents/Developer",
+        "/Applications/Xcode.app/Contents/Developer"
+    ]
+    selected_developer_dir = None
+    for candidate in xcode_candidates:
+        if os.path.exists(candidate):
+            selected_developer_dir = candidate
+            break
 
 if selected_developer_dir:
     print(f"🍏 Выбран Developer Dir: {selected_developer_dir}")
@@ -36,10 +41,8 @@ if selected_developer_dir:
         subprocess.run(f"sudo xcode-select -s '{selected_developer_dir}'", shell=True)
     except Exception as e:
         print(f"⚠️ Предупреждение xcode-select: {e}")
-else:
-    print("⚠️ Кандидаты Xcode не найдены в стандартных путях, используется текущий Xcode")
 
-# Проверяем версию и наличие iOS SDK платформы
+# Проверяем версию Xcode и наличие SDK
 run("xcodebuild -version")
 try:
     sdk_res = subprocess.run("xcrun --sdk iphoneos --show-sdk-path", shell=True, capture_output=True, text=True)
@@ -49,6 +52,10 @@ try:
         print(f"⚠️ Предупреждение поиска SDK: {sdk_res.stderr.strip()}")
 except Exception as e:
     print(f"⚠️ Ошибка вызова xcrun: {e}")
+
+# Диагностика доступных симуляторов
+print("\n🔍 Проверка зарегистрированных платформ CoreSimulator:")
+subprocess.run("xcrun simctl list runtimes", shell=True)
 
 # 2. Очистка старых артефактов и кэшей
 print("\n🧹 Очистка старых файлов сборки...")
@@ -67,7 +74,6 @@ run("npx expo prebuild --platform ios --clean")
 # 5. Исключение Storyboard из проекта для предотвращения ошибок ibtool (iOS Platform Not Installed)
 print("\n🩹 Проверка Storyboard и настройка нативного UILaunchScreen...")
 
-# 5.1. Удаляем физические файлы storyboard
 # 5.1. Удаляем физические файлы storyboard
 for root, _, files in os.walk("ios"):
     for file in files:
@@ -208,6 +214,7 @@ build_cmd = (
     f'CODE_SIGNING_REQUIRED=NO '
     f'CODE_SIGN_IDENTITY="" '
     f'ENABLE_USER_SCRIPT_SANDBOXING=NO '
+    f'ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS=NO '
     f'ONLY_ACTIVE_ARCH=YES '
     f'-derivedDataPath ios/build '
     f'build'
