@@ -5,6 +5,7 @@ import * as MediaLibrary from 'expo-media-library';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEffect, useRef, useState } from 'react';
 import {
+  DeviceEventEmitter,
   Modal,
   SafeAreaView,
   ScrollView,
@@ -54,9 +55,31 @@ const resolveVideoAsset = async (asset) => {
 };
 
 // Отдельный компонент для корректной работы видеоплеера в карусели
-function SwiperVideoItem({ card, isMuted }) {
+function SwiperVideoItem({ card, index, initialMuted }) {
   const [playableUri, setPlayableUri] = useState(card?.localUri || null);
   const [isPlaying, setIsPlaying] = useState(true);
+  const [isMuted, setIsMuted] = useState(initialMuted);
+  const [isActive, setIsActive] = useState(index === 0);
+
+  // Слушаем изменение активной карточки (воспроизведение исключительно на верхней видимой карточке)
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('activeCardChanged', (activeIndex) => {
+      setIsActive(activeIndex === index);
+    });
+    return () => {
+      sub.remove();
+    };
+  }, [index]);
+
+  // Слушаем глобальное переключение звука
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('videoMuteChanged', (muted) => {
+      setIsMuted(muted);
+    });
+    return () => {
+      sub.remove();
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -78,57 +101,71 @@ function SwiperVideoItem({ card, isMuted }) {
 
   const player = useVideoPlayer(playableUri, (playerInstance) => {
     playerInstance.loop = true;
-    playerInstance.muted = isMuted;
+    // Только активная верхняя карточка может воспроизводить звук; карточки на заднем плане всегда беззвучны
+    playerInstance.muted = isActive ? isMuted : true;
     try {
-      playerInstance.audioMixingMode = 'mixWithOthers';
+      playerInstance.audioMixingMode = 'doNotMix';
     } catch (e) {}
-    if (playableUri) {
+    if (playableUri && isActive) {
       playerInstance.play();
+    } else {
+      playerInstance.pause();
     }
   });
 
-  // Запуск и замена источника при готовности локального пути
+  // Запуск или остановка при смене активной карточки или готовности пути
   useEffect(() => {
-    if (player && playableUri) {
+    if (!player) return;
+    if (playableUri) {
       try {
         player.replace(playableUri);
-        player.play();
       } catch (e) {}
     }
-  }, [player, playableUri]);
+    if (isActive && playableUri) {
+      player.muted = isMuted;
+      player.play();
+      setIsPlaying(true);
+    } else {
+      player.muted = true;
+      player.pause();
+      setIsPlaying(false);
+    }
+  }, [player, playableUri, isActive]);
 
-  // Автозапуск при готовности к воспроизведению и отслеживание статуса
+  // Мгновенная реакция на переключение звука без задержек
+  useEffect(() => {
+    if (player) {
+      player.muted = isActive ? isMuted : true;
+    }
+  }, [player, isMuted, isActive]);
+
+  // Автозапуск при готовности к воспроизведению только для активной карточки
   useEffect(() => {
     if (!player) return;
 
-    if (player.status === 'readyToPlay') {
+    if (player.status === 'readyToPlay' && isActive) {
       player.play();
       setIsPlaying(true);
     }
 
     const sub = player.addListener('statusChange', ({ status }) => {
-      if (status === 'readyToPlay') {
+      if (status === 'readyToPlay' && isActive) {
         player.play();
         setIsPlaying(true);
       }
     });
 
     const playSub = player.addListener('playingChange', ({ isPlaying: playing }) => {
-      setIsPlaying(playing);
+      if (isActive) {
+        setIsPlaying(playing);
+      }
     });
 
     return () => {
       sub?.remove();
       playSub?.remove();
     };
-  }, [player]);
-
-  // Обновляем состояние звука при переключении кнопки
-  useEffect(() => {
-    if (player) {
-      player.muted = isMuted;
-    }
-  }, [isMuted, player]);
+  }, [player, isActive]);
 
   const togglePlay = () => {
     if (!player) return;
@@ -139,6 +176,12 @@ function SwiperVideoItem({ card, isMuted }) {
       player.play();
       setIsPlaying(true);
     }
+  };
+
+  const toggleMute = () => {
+    const newMuted = !isMuted;
+    setIsMuted(newMuted);
+    DeviceEventEmitter.emit('videoMuteChanged', newMuted);
   };
 
   return (
@@ -166,6 +209,24 @@ function SwiperVideoItem({ card, isMuted }) {
           <Ionicons name="play" size={54} color="rgba(255, 255, 255, 0.9)" />
         </View>
       )}
+
+      {/* Бейдж видео и мгновенный переключатель звука прямо на карточке */}
+      <View style={styles.videoHeaderBadge}>
+        <View style={styles.videoBadge}>
+          <Ionicons name="play" size={14} color="#FFF" />
+          <Text style={{ color: '#FFF', fontWeight: 'bold', marginLeft: 4, fontSize: 12 }}>
+            Видео
+          </Text>
+        </View>
+
+        <TouchableOpacity
+          activeOpacity={0.8}
+          style={styles.soundButton}
+          onPress={toggleMute}
+        >
+          <Ionicons name={isMuted ? 'volume-mute' : 'volume-high'} size={18} color="#FFF" />
+        </TouchableOpacity>
+      </View>
     </TouchableOpacity>
   );
 }
@@ -236,6 +297,14 @@ export default function HomeScreen() {
         setIsLoadingAlbums(false);
       }
     })();
+
+    const muteSub = DeviceEventEmitter.addListener('videoMuteChanged', (muted) => {
+      setIsVideoMuted(muted);
+    });
+
+    return () => {
+      muteSub.remove();
+    };
   }, []);
 
   const loadPhotos = async (mode = activeMode, limit = activePhotoLimit) => {
@@ -347,6 +416,7 @@ export default function HomeScreen() {
 
         const finalPhotos = selectedAssets.slice(0, limit);
         setPhotos(finalPhotos);
+        DeviceEventEmitter.emit('activeCardChanged', 0);
 
         // Фоновая предварительная подготовка видеофайлов для первых карточек
         finalPhotos
@@ -622,7 +692,12 @@ export default function HomeScreen() {
       <StatusBar barStyle="light-content" />
 
       <View style={styles.swipeHeader}>
-        <TouchableOpacity onPress={() => setCurrentScreen('landing')}>
+        <TouchableOpacity
+          onPress={() => {
+            DeviceEventEmitter.emit('activeCardChanged', -1);
+            setCurrentScreen('landing');
+          }}
+        >
           <View style={styles.backButtonContainer}>
             <Ionicons name="close" size={32} color={activeSwipe ? '#FFF' : theme.textMuted} />
           </View>
@@ -702,7 +777,7 @@ export default function HomeScreen() {
           <Swiper
             ref={swiperRef}
             cards={photos}
-            renderCard={(card) => {
+            renderCard={(card, index) => {
               if (!card) return null;
               const isVideo = card.mediaType === 'video';
 
@@ -712,28 +787,14 @@ export default function HomeScreen() {
                   style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.cardBorder }]}
                 >
                   {isVideo ? (
-                    <SwiperVideoItem key={card.id || card.uri} card={card} isMuted={isVideoMuted} />
+                    <SwiperVideoItem
+                      key={card.id || card.uri}
+                      card={card}
+                      index={index}
+                      initialMuted={isVideoMuted}
+                    />
                   ) : (
                     <Image source={{ uri: card.uri }} style={styles.cardImage} contentFit="cover" />
-                  )}
-
-                  {isVideo && (
-                    <View style={styles.videoHeaderBadge}>
-                      <View style={styles.videoBadge}>
-                        <Ionicons name="play" size={14} color="#FFF" />
-                        <Text style={{ color: '#FFF', fontWeight: 'bold', marginLeft: 4, fontSize: 12 }}>
-                          Видео
-                        </Text>
-                      </View>
-
-                      <TouchableOpacity
-                        activeOpacity={0.8}
-                        style={styles.soundButton}
-                        onPress={() => setIsVideoMuted(!isVideoMuted)}
-                      >
-                        <Ionicons name={isVideoMuted ? 'volume-mute' : 'volume-high'} size={18} color="#FFF" />
-                      </TouchableOpacity>
-                    </View>
                   )}
                 </View>
               );
@@ -759,7 +820,10 @@ export default function HomeScreen() {
             onSwipedRight={onSwipeRight}
             onSwipedAll={() => setIsFinished(true)}
             onSwiping={handleSwiping}
-            onSwiped={() => setActiveSwipe(null)}
+            onSwiped={(swipedIndex) => {
+              setActiveSwipe(null);
+              DeviceEventEmitter.emit('activeCardChanged', swipedIndex + 1);
+            }}
             onSwipedAborted={() => setActiveSwipe(null)}
             cardIndex={0}
             keyExtractor={(card) => (card ? card.id || card.uri : Math.random().toString())}
