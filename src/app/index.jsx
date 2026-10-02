@@ -5,9 +5,7 @@ import * as MediaLibrary from 'expo-media-library/legacy';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEffect, useRef, useState } from 'react';
 import {
-  Dimensions,
   Modal,
-  Platform,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -19,8 +17,6 @@ import {
 } from 'react-native';
 import Swiper from 'react-native-deck-swiper';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-
 const formatBytes = (bytes) => {
   if (!bytes || bytes === 0) return '0 B';
   const k = 1024;
@@ -29,7 +25,7 @@ const formatBytes = (bytes) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 };
 
-// Отдельный компонент для надежного воспроизведения видео в карточке
+// Отдельный компонент для корректной работы видеоплеера в карусели
 function SwiperVideoItem({ uri, isMuted }) {
   const player = useVideoPlayer(uri, (playerInstance) => {
     playerInstance.loop = true;
@@ -37,6 +33,7 @@ function SwiperVideoItem({ uri, isMuted }) {
     playerInstance.play();
   });
 
+  // Обновляем состояние звука при переключении кнопки
   useEffect(() => {
     if (player) {
       player.muted = isMuted;
@@ -72,74 +69,54 @@ export default function HomeScreen() {
   const [isFinished, setIsFinished] = useState(false);
   const [showResultModal, setShowResultModal] = useState(false);
   const [activeSwipe, setActiveSwipe] = useState(null);
-  const [cardIndex, setCardIndex] = useState(0);
 
-  // Состояние звука для видео
+  // Состояние звука для видео (false = со звуком по умолчанию)
   const [isVideoMuted, setIsVideoMuted] = useState(false);
 
   const swiperRef = useRef(null);
 
-  // Дизайн-токены "Obsidian Frosted UI" (Stitch MCP)
   const theme = isDarkMode
     ? {
-        background: '#090A0F',
-        surface: 'rgba(255, 255, 255, 0.05)',
-        surfaceElevated: '#14161F',
-        border: 'rgba(255, 255, 255, 0.12)',
-        borderSubtle: 'rgba(255, 255, 255, 0.06)',
+        background: '#0B0B0E',
+        surface: '#1A1A24',
+        cardBorder: 'rgba(255, 255, 255, 0.08)',
         text: '#FFFFFF',
-        textMuted: '#8E90A6',
-        primary: '#6366F1',
-        primaryGlow: 'rgba(99, 102, 241, 0.25)',
-        secondary: '#8B5CF6',
-        danger: '#EF4444',
-        dangerGlow: 'rgba(239, 68, 68, 0.2)',
-        success: '#10B981',
-        successGlow: 'rgba(16, 185, 129, 0.2)',
-        glassPill: 'rgba(255, 255, 255, 0.08)',
-        modalBg: '#10121B',
+        textMuted: '#8A8A93',
+        primary: '#A37BFF',
+        danger: '#FF4B4B',
+        success: '#4CD964',
       }
     : {
-        background: '#F6F7FB',
+        background: '#F5F5F7',
         surface: '#FFFFFF',
-        surfaceElevated: '#FFFFFF',
-        border: 'rgba(0, 0, 0, 0.08)',
-        borderSubtle: 'rgba(0, 0, 0, 0.04)',
-        text: '#0F172A',
-        textMuted: '#64748B',
-        primary: '#4F46E5',
-        primaryGlow: 'rgba(79, 70, 229, 0.15)',
-        secondary: '#7C3AED',
-        danger: '#DC2626',
-        dangerGlow: 'rgba(220, 38, 38, 0.15)',
-        success: '#059669',
-        successGlow: 'rgba(5, 150, 105, 0.15)',
-        glassPill: 'rgba(0, 0, 0, 0.05)',
-        modalBg: '#FFFFFF',
+        cardBorder: 'rgba(0, 0, 0, 0.06)',
+        text: '#1C1C1E',
+        textMuted: '#8E8E93',
+        primary: '#8A4FFF',
+        danger: '#FF3B30',
+        success: '#34C759',
       };
 
-  const requestPermissionAndFetchAlbums = async () => {
-    setIsLoadingAlbums(true);
-    try {
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      setHasPermission(status === 'granted');
-
-      if (status === 'granted') {
-        const fetchedAlbums = await MediaLibrary.getAlbumsAsync({ includeSmartAlbums: true });
-        const nonEmptyAlbums = fetchedAlbums
-          .filter((a) => a.assetCount > 0)
-          .sort((a, b) => b.assetCount - a.assetCount);
-        setAlbums(nonEmptyAlbums);
-      }
-    } catch (err) {
-      console.log('Ошибка при запросе разрешений', err);
-    } finally {
-      setIsLoadingAlbums(false);
-    }
-  };
-
   useEffect(() => {
-    requestPermissionAndFetchAlbums();
+    (async () => {
+      try {
+        const { status } = await MediaLibrary.requestPermissionsAsync();
+        setHasPermission(status === 'granted');
+
+        if (status === 'granted') {
+          const fetchedAlbums = await MediaLibrary.getAlbumsAsync({ includeSmartAlbums: true });
+          const nonEmptyAlbums = fetchedAlbums
+            .filter((a) => a.assetCount > 0)
+            .sort((a, b) => b.assetCount - a.assetCount);
+
+          setAlbums(nonEmptyAlbums);
+        }
+      } catch (err) {
+        console.log('Ошибка при запросе разрешений', err);
+      } finally {
+        setIsLoadingAlbums(false);
+      }
+    })();
   }, []);
 
   const loadPhotos = async (mode = activeMode, limit = activePhotoLimit) => {
@@ -148,7 +125,6 @@ export default function HomeScreen() {
     setKeptPhotos([]);
     setTrashSize(0);
     setActiveSwipe(null);
-    setCardIndex(0);
     setActiveMode(mode);
     setActivePhotoLimit(limit);
     setPhotos([]);
@@ -170,7 +146,6 @@ export default function HomeScreen() {
         const media = await MediaLibrary.getAssetsAsync(options);
         let processedAssets = [...media.assets];
 
-        // Перемешивание для интересного процесса уборки
         for (let i = processedAssets.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
           [processedAssets[i], processedAssets[j]] = [processedAssets[j], processedAssets[i]];
@@ -180,15 +155,12 @@ export default function HomeScreen() {
       } catch (err) {
         console.log('Ошибка загрузки медиа', err);
       }
-    } else {
-      await requestPermissionAndFetchAlbums();
     }
   };
 
   const onSwipeLeft = async (index) => {
     const photo = photos[index];
     if (!photo) return;
-    setCardIndex(index + 1);
     setTrashPhotos((prev) => [...prev, photo]);
 
     try {
@@ -201,7 +173,7 @@ export default function HomeScreen() {
       }
 
       if (!exactSize || exactSize === 0) {
-        exactSize = photo.mediaType === 'video' ? 18000000 : 3500000;
+        exactSize = photo.mediaType === 'video' ? 15000000 : 3500000;
       }
 
       setTrashSize((prev) => prev + exactSize);
@@ -216,7 +188,6 @@ export default function HomeScreen() {
   const onSwipeRight = (index) => {
     const photo = photos[index];
     if (!photo) return;
-    setCardIndex(index + 1);
     setKeptPhotos((prev) => [...prev, photo]);
   };
 
@@ -239,357 +210,196 @@ export default function HomeScreen() {
   };
 
   const handleSwiping = (x) => {
-    if (x < -18 && activeSwipe !== 'left') setActiveSwipe('left');
-    else if (x > 18 && activeSwipe !== 'right') setActiveSwipe('right');
-    else if (Math.abs(x) <= 18 && activeSwipe !== null) setActiveSwipe(null);
+    if (x < -15 && activeSwipe !== 'left') setActiveSwipe('left');
+    else if (x > 15 && activeSwipe !== 'right') setActiveSwipe('right');
+    else if (Math.abs(x) <= 15 && activeSwipe !== null) setActiveSwipe(null);
   };
 
-  // ===================== 1. ГЛАВНЫЙ ЭКРАН (LANDING) =====================
+  // ===================== 1. ГЛАВНЫЙ ЭКРАН =====================
   if (currentScreen === 'landing') {
     return (
       <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
         <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-        <ScrollView
-          contentContainerStyle={styles.landingContainer}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Glass Header */}
-          <View style={[styles.glassHeader, { borderColor: theme.borderSubtle }]}>
-            <View style={styles.brandRow}>
-              <View style={[styles.logoIconContainer, { backgroundColor: theme.primaryGlow }]}>
-                <Ionicons name="sparkles" size={20} color={theme.primary} />
-              </View>
-              <Text style={[styles.brandTitle, { color: theme.text }]}>PhotoDrop</Text>
+        <ScrollView contentContainerStyle={styles.landingContainer} showsVerticalScrollIndicator={false}>
+          <View style={styles.header}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <Text style={[styles.logoText, { color: theme.text }]}>PhotoDrop</Text>
+
+              <Image
+                source={require('../../assets/logo.png')}
+                style={{ width: 32, height: 32, borderRadius: 8 }}
+                contentFit="contain"
+              />
             </View>
 
-            <View style={styles.headerControls}>
-              <View style={[styles.themePill, { backgroundColor: theme.glassPill }]}>
-                <Ionicons
-                  name={isDarkMode ? 'moon' : 'sunny'}
-                  size={16}
-                  color={isDarkMode ? '#A5B4FC' : '#F59E0B'}
-                  style={{ marginRight: 6 }}
-                />
-                <Switch
-                  value={isDarkMode}
-                  onValueChange={setIsDarkMode}
-                  trackColor={{ false: '#CBD5E1', true: theme.primary }}
-                  thumbColor="#FFFFFF"
-                  style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
-                />
-              </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Switch
+                value={isDarkMode}
+                onValueChange={setIsDarkMode}
+                trackColor={{ false: '#CBD5E1', true: theme.primary }}
+                thumbColor="#FFFFFF"
+              />
             </View>
           </View>
 
-          {/* Hero Section */}
-          <View style={styles.heroSection}>
-            <View style={[styles.badgePill, { backgroundColor: theme.primaryGlow }]}>
-              <Text style={[styles.badgeText, { color: theme.primary }]}>УМНАЯ ОЧИСТКА ГАЛЕРЕИ</Text>
-            </View>
-            <Text style={[styles.heroHeading, { color: theme.text }]}>
-              Освободите место{'\n'}в один <Text style={{ color: theme.primary }}>свайп</Text>
-            </Text>
-            <Text style={[styles.heroSubheading, { color: theme.textMuted }]}>
-              Быстро просматривайте и удаляйте ненужные снимки и тяжелые видеозаписи.
-            </Text>
-          </View>
+          <Text style={[styles.mainTitle, { color: theme.text, marginTop: 20 }]}>
+            Очистите <Text style={{ color: theme.primary }}>ГАЛЕРЕЮ</Text> легко.
+          </Text>
 
-          {/* Quick Action Modes */}
-          <Text style={[styles.sectionTitle, { color: theme.textMuted }]}>РЕЖИМЫ РАБОТЫ</Text>
+          <Text style={styles.sectionTitle}>Быстрый старт</Text>
           <View style={styles.modesContainer}>
-            {/* Mode: All Photos */}
             <TouchableOpacity
-              activeOpacity={0.82}
-              style={[
-                styles.modeCard,
-                { backgroundColor: theme.surfaceElevated, borderColor: theme.border },
-              ]}
+              activeOpacity={0.8}
+              style={[styles.modeButton, { backgroundColor: theme.surface, borderColor: theme.cardBorder }]}
               onPress={() => loadPhotos({ type: 'all', title: 'Все фото' }, 100)}
             >
-              <View style={[styles.modeIconCircle, { backgroundColor: 'rgba(99, 102, 241, 0.15)' }]}>
-                <Ionicons name="images" size={26} color={theme.primary} />
+              <View style={[styles.modeIconBg, { backgroundColor: 'rgba(163, 123, 255, 0.15)' }]}>
+                <Ionicons name="images" size={24} color={theme.primary} />
               </View>
-              <View style={styles.modeTextCol}>
-                <View style={styles.modeRowBetween}>
-                  <Text style={[styles.modeTitle, { color: theme.text }]}>Все медиа</Text>
-                  <View style={[styles.tagPill, { backgroundColor: theme.glassPill }]}>
-                    <Text style={[styles.tagPillText, { color: theme.primary }]}>Быстрый старт</Text>
-                  </View>
-                </View>
-                <Text style={[styles.modeDesc, { color: theme.textMuted }]}>
-                  Случайная выборка фото и видео из всей галереи
-                </Text>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.modeTitle, { color: theme.text }]}>Все фото</Text>
+                <Text style={[styles.modeDesc, { color: theme.textMuted }]}>Случайные фото из галереи</Text>
               </View>
-              <Ionicons name="chevron-forward" size={20} color={theme.textMuted} />
             </TouchableOpacity>
 
-            {/* Mode: Video Only */}
             <TouchableOpacity
-              activeOpacity={0.82}
-              style={[
-                styles.modeCard,
-                { backgroundColor: theme.surfaceElevated, borderColor: theme.border },
-              ]}
+              activeOpacity={0.8}
+              style={[styles.modeButton, { backgroundColor: theme.surface, borderColor: theme.cardBorder }]}
               onPress={() => loadPhotos({ type: 'video', title: 'Только Видео' }, 50)}
             >
-              <View style={[styles.modeIconCircle, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
-                <Ionicons name="videocam" size={26} color={theme.danger} />
+              <View style={[styles.modeIconBg, { backgroundColor: 'rgba(255, 75, 75, 0.15)' }]}>
+                <Ionicons name="videocam" size={24} color={theme.danger} />
               </View>
-              <View style={styles.modeTextCol}>
-                <View style={styles.modeRowBetween}>
-                  <Text style={[styles.modeTitle, { color: theme.text }]}>Только видео</Text>
-                  <View style={[styles.tagPill, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
-                    <Text style={[styles.tagPillText, { color: theme.danger }]}>Максимум GB</Text>
-                  </View>
-                </View>
-                <Text style={[styles.modeDesc, { color: theme.textMuted }]}>
-                  Очистка самых тяжелых видеофайлов
-                </Text>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.modeTitle, { color: theme.text }]}>Только Видео</Text>
+                <Text style={[styles.modeDesc, { color: theme.textMuted }]}>Освободите максимум места</Text>
               </View>
-              <Ionicons name="chevron-forward" size={20} color={theme.textMuted} />
             </TouchableOpacity>
           </View>
 
-          {/* Smart Albums Section */}
-          <View style={styles.sectionHeaderRow}>
-            <Text style={[styles.sectionTitle, { color: theme.textMuted, marginBottom: 0 }]}>
-              ВАШИ АЛЬБОМЫ
-            </Text>
-            {albums.length > 0 && (
-              <Text style={{ color: theme.textMuted, fontSize: 13 }}>{albums.length} папок</Text>
-            )}
-          </View>
-
-          {albums.length > 0 ? (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.albumsScrollContainer}
-            >
-              {albums.map((album) => (
-                <TouchableOpacity
-                  key={album.id}
-                  activeOpacity={0.8}
-                  style={[
-                    styles.albumGlassCard,
-                    { backgroundColor: theme.surfaceElevated, borderColor: theme.border },
-                  ]}
-                  onPress={() =>
-                    loadPhotos({ type: 'album', id: album.id, title: album.title }, 100)
-                  }
-                >
-                  <View
-                    style={[
-                      styles.albumFolderIcon,
-                      { backgroundColor: 'rgba(16, 185, 129, 0.15)' },
-                    ]}
-                  >
-                    <Ionicons name="folder-open" size={24} color={theme.success} />
-                  </View>
-                  <Text style={[styles.albumTitle, { color: theme.text }]} numberOfLines={1}>
-                    {album.title}
-                  </Text>
-                  <View style={[styles.albumCountBadge, { backgroundColor: theme.glassPill }]}>
-                    <Text style={[styles.albumCountText, { color: theme.textMuted }]}>
-                      {album.assetCount} файлов
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          ) : (
-            <View
-              style={[
-                styles.emptyAlbumsBox,
-                { backgroundColor: theme.surface, borderColor: theme.borderSubtle },
-              ]}
-            >
-              <Ionicons name="images-outline" size={32} color={theme.textMuted} />
-              <Text style={[styles.emptyAlbumsText, { color: theme.textMuted }]}>
-                {hasPermission === false
-                  ? 'Нет доступа к медиатеке. Нажмите для запроса прав.'
-                  : 'Загрузка альбомов...'}
-              </Text>
-              {hasPermission === false && (
-                <TouchableOpacity
-                  style={[styles.smallPrimaryBtn, { backgroundColor: theme.primary }]}
-                  onPress={requestPermissionAndFetchAlbums}
-                >
-                  <Text style={styles.smallPrimaryBtnText}>Разрешить доступ</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
+          <Text style={[styles.sectionTitle, { marginTop: 35 }]}>Ваши альбомы</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={{ marginHorizontal: -24, paddingHorizontal: 24, paddingBottom: 20 }}
+          >
+            {albums.map((album) => (
+              <TouchableOpacity
+                key={album.id}
+                activeOpacity={0.8}
+                style={[styles.albumCard, { backgroundColor: theme.surface, borderColor: theme.cardBorder }]}
+                onPress={() => loadPhotos({ type: 'album', id: album.id, title: album.title }, 100)}
+              >
+                <View style={[styles.modeIconBg, { backgroundColor: 'rgba(76, 217, 100, 0.15)', marginBottom: 15 }]}>
+                  <Ionicons name="folder" size={24} color={theme.success} />
+                </View>
+                <Text style={[styles.modeTitle, { color: theme.text }]} numberOfLines={1}>
+                  {album.title}
+                </Text>
+                <Text style={[styles.modeDesc, { color: theme.textMuted }]}>{album.assetCount} файлов</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
         </ScrollView>
       </SafeAreaView>
     );
   }
 
-  // ===================== 2. ЭКРАН ИТОГОВ (FINISHED) =====================
+  // ===================== 2. ЭКРАН ИТОГОВ =====================
   if (isFinished) {
     return (
       <SafeAreaView
         style={[
           styles.safeArea,
-          {
-            backgroundColor: theme.background,
-            justifyContent: 'center',
-            alignItems: 'center',
-            padding: 24,
-          },
+          { backgroundColor: theme.background, justifyContent: 'center', alignItems: 'center', padding: 20 },
         ]}
       >
         <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-
-        {/* Success Icon Disc */}
-        <View style={[styles.finishIconDisc, { backgroundColor: theme.successGlow }]}>
-          <Ionicons name="checkmark-circle" size={64} color={theme.success} />
-        </View>
-
-        <Text style={[styles.finishTitle, { color: theme.text }]}>Отличная уборка!</Text>
-        <Text style={[styles.finishSubtitle, { color: theme.textMuted }]}>
-          Все выбранные фото и видео отсортированы
+        <Text style={[styles.mainTitle, { color: theme.text, textAlign: 'center', fontSize: 32 }]}>
+          Отличная уборка.
         </Text>
 
-        {/* Stats Summary Cards */}
-        <View style={styles.finishStatsGrid}>
-          <View
-            style={[
-              styles.finishStatCard,
-              { backgroundColor: theme.surfaceElevated, borderColor: theme.border },
-            ]}
-          >
-            <View style={[styles.miniStatusDot, { backgroundColor: theme.success }]} />
-            <Text style={[styles.finishStatNumber, { color: theme.success }]}>
-              {keptPhotos.length}
-            </Text>
-            <Text style={[styles.finishStatLabel, { color: theme.textMuted }]}>Оставлено</Text>
+        <View style={styles.statsRow}>
+          <View style={[styles.statCard, { backgroundColor: theme.surface, borderColor: theme.cardBorder }]}>
+            <Text style={{ fontSize: 28, color: theme.success, fontWeight: 'bold' }}>{keptPhotos.length}</Text>
+            <Text style={{ color: theme.textMuted, marginTop: 5 }}>Оставлено</Text>
           </View>
-
-          <View
-            style={[
-              styles.finishStatCard,
-              { backgroundColor: theme.surfaceElevated, borderColor: theme.border },
-            ]}
-          >
-            <View style={[styles.miniStatusDot, { backgroundColor: theme.danger }]} />
-            <Text style={[styles.finishStatNumber, { color: theme.danger }]}>
-              {trashPhotos.length}
-            </Text>
-            <Text style={[styles.finishStatLabel, { color: theme.textMuted }]}>В корзину</Text>
-            <Text style={[styles.finishStatSize, { color: theme.danger }]}>
-              {formatBytes(trashSize)}
-            </Text>
+          <View style={[styles.statCard, { backgroundColor: theme.surface, borderColor: theme.cardBorder }]}>
+            <Text style={{ fontSize: 28, color: theme.danger, fontWeight: 'bold' }}>{trashPhotos.length}</Text>
+            <Text style={{ color: theme.textMuted, marginTop: 5 }}>На удаление</Text>
+            <Text style={{ color: theme.danger, fontWeight: 'bold', marginTop: 5 }}>{formatBytes(trashSize)}</Text>
           </View>
         </View>
 
-        {/* Action Button: Check & Review Trash */}
         <TouchableOpacity
           activeOpacity={0.85}
-          style={[
-            styles.ctaLargeButton,
-            { backgroundColor: trashPhotos.length > 0 ? theme.primary : theme.success },
-          ]}
+          style={[styles.primaryButton, { backgroundColor: theme.primary, width: '100%' }]}
           onPress={() => setShowResultModal(true)}
         >
-          <Text style={styles.ctaLargeButtonText}>
-            {trashPhotos.length > 0
-              ? `Проверить корзину (${formatBytes(trashSize)}) →`
-              : 'Завершить просмотр'}
-          </Text>
+          <Text style={styles.primaryButtonText}>Проверить результат →</Text>
         </TouchableOpacity>
 
-        {/* Return to Home */}
-        <TouchableOpacity
-          style={styles.returnHomeButton}
-          onPress={() => setCurrentScreen('landing')}
-        >
-          <Ionicons name="arrow-back" size={18} color={theme.textMuted} style={{ marginRight: 6 }} />
-          <Text style={[styles.returnHomeText, { color: theme.textMuted }]}>На главную</Text>
+        <TouchableOpacity style={{ marginTop: 18 }} onPress={() => setCurrentScreen('landing')}>
+          <Text style={{ color: theme.textMuted, fontSize: 16 }}>На главную</Text>
         </TouchableOpacity>
 
-        {/* Modal: Review and Confirm Deletion */}
         <Modal visible={showResultModal} animationType="slide" transparent={true}>
-          <View style={styles.modalBackdrop}>
-            <View style={[styles.modalSheet, { backgroundColor: theme.modalBg }]}>
-              {/* Modal Drag Handle */}
-              <View style={styles.modalDragHandle} />
-
-              <View style={styles.modalHeaderRow}>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+              <View style={styles.modalHeader}>
                 <View>
-                  <Text style={[styles.modalTitleText, { color: theme.text }]}>
-                    К удалению: {formatBytes(trashSize)}
+                  <Text style={[styles.modalTitle, { color: theme.text }]}>
+                    Удалить: {formatBytes(trashSize)}
                   </Text>
-                  <Text style={[styles.modalSubText, { color: theme.textMuted }]}>
-                    Нажмите на кадр, если хотите восстановить его
+                  <Text style={{ color: theme.textMuted, fontSize: 12, marginTop: 2 }}>
+                    Нажмите на фото, чтобы вернуть его
                   </Text>
                 </View>
-                <TouchableOpacity
-                  style={[styles.modalCloseButton, { backgroundColor: theme.glassPill }]}
-                  onPress={() => setShowResultModal(false)}
-                >
-                  <Ionicons name="close" size={20} color={theme.text} />
+                <TouchableOpacity onPress={() => setShowResultModal(false)}>
+                  <Ionicons name="close" size={28} color={theme.text} />
                 </TouchableOpacity>
               </View>
 
-              {/* Grid of Trash Photos */}
-              <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-                <View style={styles.trashGrid}>
+              <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={true}>
+                <View style={styles.gridContainer}>
                   {trashPhotos.length > 0 ? (
                     trashPhotos.map((photo, idx) => (
                       <TouchableOpacity
-                        key={'trash-' + photo.id + '-' + idx}
-                        activeOpacity={0.75}
-                        style={styles.trashGridItem}
+                        key={'del-' + idx}
+                        style={styles.gridItem}
+                        activeOpacity={0.7}
                         onPress={() => restorePhoto(photo)}
                       >
-                        <Image source={{ uri: photo.uri }} style={styles.trashGridImage} />
+                        <Image source={{ uri: photo.uri }} style={styles.gridImage} />
                         {photo.fileSize > 0 && (
-                          <View style={styles.trashSizeBadge}>
-                            <Text style={styles.trashSizeBadgeText}>
+                          <View style={styles.sizeBadge}>
+                            <Text style={{ color: '#FFF', fontSize: 10, fontWeight: 'bold' }}>
                               {formatBytes(photo.fileSize)}
                             </Text>
                           </View>
                         )}
-                        <View style={styles.trashActionBadge}>
-                          <Ionicons name="arrow-undo" size={12} color="#FFFFFF" />
+                        <View style={styles.deleteBadgeTopRight}>
+                          <Ionicons name="trash" size={14} color="#FFF" />
                         </View>
                       </TouchableOpacity>
                     ))
                   ) : (
-                    <View style={styles.emptyTrashState}>
-                      <Ionicons name="checkmark-done-circle" size={48} color={theme.success} />
-                      <Text style={[styles.emptyTrashText, { color: theme.textMuted }]}>
-                        Список на удаление пуст
-                      </Text>
-                    </View>
+                    <Text style={{ color: theme.textMuted, marginVertical: 20 }}>Список на удаление пуст.</Text>
                   )}
                 </View>
               </ScrollView>
 
-              {/* Confirm Deletion Bar */}
-              <View style={styles.modalBottomBar}>
+              <View style={{ paddingTop: 15, paddingBottom: 30 }}>
                 <TouchableOpacity
                   activeOpacity={0.85}
                   style={[
-                    styles.ctaLargeButton,
-                    {
-                      backgroundColor: trashPhotos.length > 0 ? theme.danger : theme.success,
-                      width: '100%',
-                    },
+                    styles.primaryButton,
+                    { backgroundColor: trashPhotos.length > 0 ? theme.danger : theme.success },
                   ]}
                   onPress={confirmDeletion}
                 >
-                  <Ionicons
-                    name={trashPhotos.length > 0 ? 'trash' : 'checkmark'}
-                    size={20}
-                    color="#FFFFFF"
-                    style={{ marginRight: 8 }}
-                  />
-                  <Text style={styles.ctaLargeButtonText}>
-                    {trashPhotos.length > 0
-                      ? `Удалить ${trashPhotos.length} объектов (${formatBytes(trashSize)})`
-                      : 'Готово'}
+                  <Text style={styles.primaryButtonText}>
+                    {trashPhotos.length > 0 ? 'Удалить навсегда' : 'Готово'}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -600,85 +410,91 @@ export default function HomeScreen() {
     );
   }
 
-  // ===================== 3. ЭКРАН СВАЙПОВ (SWIPE DECK) =====================
-  const swipeGlowBg =
-    activeSwipe === 'left'
-      ? isDarkMode
-        ? 'rgba(239, 68, 68, 0.25)'
-        : 'rgba(239, 68, 68, 0.15)'
-      : activeSwipe === 'right'
-      ? isDarkMode
-        ? 'rgba(16, 185, 129, 0.25)'
-        : 'rgba(16, 185, 129, 0.15)'
-      : 'transparent';
+  // ===================== 3. ЭКРАН СВАЙПОВ =====================
+  const currentScreenBg =
+    activeSwipe === 'left' ? '#FF2A2A' : activeSwipe === 'right' ? '#0CDA53' : theme.background;
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
-      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: currentScreenBg }]}>
+      <StatusBar barStyle="light-content" />
 
-      {/* Dynamic Background Tint when swiping */}
-      <View
-        style={[
-          StyleSheet.absoluteFillObject,
-          { backgroundColor: swipeGlowBg, zIndex: -1 },
-        ]}
-        pointerEvents="none"
-      />
-
-      {/* Top Glass Navigation Bar */}
-      <View style={styles.swipeTopBar}>
-        <TouchableOpacity
-          activeOpacity={0.8}
-          style={[styles.roundGlassNavBtn, { backgroundColor: theme.surfaceElevated, borderColor: theme.border }]}
-          onPress={() => setCurrentScreen('landing')}
-        >
-          <Ionicons name="close" size={22} color={theme.text} />
+      <View style={styles.swipeHeader}>
+        <TouchableOpacity onPress={() => setCurrentScreen('landing')}>
+          <View style={styles.backButtonContainer}>
+            <Ionicons name="close" size={32} color={activeSwipe ? '#FFF' : theme.textMuted} />
+          </View>
         </TouchableOpacity>
 
         {['all', 'video'].includes(activeMode.type) ? (
-          <View style={[styles.limitSegmentPill, { backgroundColor: theme.surfaceElevated, borderColor: theme.border }]}>
-            {[50, 100, 500].map((num) => {
-              const isSelected = activePhotoLimit === num;
-              return (
-                <TouchableOpacity
-                  key={num}
-                  activeOpacity={0.8}
-                  style={[
-                    styles.segmentButton,
-                    isSelected && { backgroundColor: theme.primary },
-                  ]}
-                  onPress={() => loadPhotos(activeMode, num)}
+          <View style={styles.inlineLimitContainer}>
+            {[50, 100, 500].map((num) => (
+              <TouchableOpacity
+                key={num}
+                activeOpacity={0.8}
+                style={[
+                  styles.smallLimitBtn,
+                  { backgroundColor: activePhotoLimit === num ? theme.primary : 'rgba(255,255,255,0.1)' },
+                ]}
+                onPress={() => loadPhotos(activeMode, num)}
+              >
+                <Text
+                  style={{
+                    color: activePhotoLimit === num ? '#FFF' : theme.text,
+                    fontSize: 13,
+                    fontWeight: 'bold',
+                  }}
                 >
-                  <Text
-                    style={[
-                      styles.segmentButtonText,
-                      { color: isSelected ? '#FFFFFF' : theme.textMuted },
-                    ]}
-                  >
-                    {num}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+                  {num}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
         ) : (
-          <View style={[styles.activeAlbumHeaderPill, { backgroundColor: theme.surfaceElevated, borderColor: theme.border }]}>
-            <Ionicons name="folder" size={14} color={theme.primary} style={{ marginRight: 6 }} />
-            <Text style={[styles.activeAlbumHeaderText, { color: theme.text }]} numberOfLines={1}>
-              {activeMode.title}
-            </Text>
-          </View>
+          <Text style={{ color: theme.textMuted, fontWeight: 'bold', fontSize: 16 }}>{activeMode.title}</Text>
         )}
-
-        <View style={[styles.counterGlassBadge, { backgroundColor: theme.surfaceElevated, borderColor: theme.border }]}>
-          <Text style={[styles.counterGlassBadgeText, { color: theme.primary }]}>
-            {Math.min(cardIndex + 1, photos.length)} / {photos.length}
-          </Text>
-        </View>
       </View>
 
-      {/* Swipe Deck Viewport */}
-      <View style={styles.deckViewport}>
+      {activeMode.type === 'album' && (
+        <Text
+          style={{
+            color: theme.text,
+            textAlign: 'center',
+            fontSize: 16,
+            fontWeight: 'bold',
+            marginTop: 10,
+          }}
+        >
+          Альбом: {activeMode.title}
+        </Text>
+      )}
+
+      <View style={styles.swipeAreaContainer}>
+        <View
+          style={[
+            StyleSheet.absoluteFillObject,
+            {
+              backgroundColor:
+                activeSwipe === 'left'
+                  ? 'rgba(255, 30, 30, 0.7)'
+                  : activeSwipe === 'right'
+                  ? 'rgba(30, 255, 60, 0.6)'
+                  : 'transparent',
+              zIndex: -2,
+            },
+          ]}
+        />
+
+        <View style={styles.sideArrowLeft} pointerEvents="none">
+          <Ionicons name="chevron-back" size={40} color={activeSwipe === 'left' ? '#FFF' : theme.textMuted} />
+        </View>
+        <View style={styles.sideArrowRight} pointerEvents="none">
+          <Ionicons
+            name="chevron-forward"
+            size={40}
+            color={activeSwipe === 'right' ? '#FFF' : theme.textMuted}
+          />
+        </View>
+
         {photos.length > 0 ? (
           <Swiper
             ref={swiperRef}
@@ -688,71 +504,51 @@ export default function HomeScreen() {
               const isVideo = card.mediaType === 'video';
 
               return (
-                <View
-                  style={[
-                    styles.deckCard,
-                    {
-                      backgroundColor: theme.surfaceElevated,
-                      borderColor: theme.border,
-                    },
-                  ]}
-                >
+                <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.cardBorder }]}>
                   {isVideo ? (
                     <SwiperVideoItem uri={card.uri} isMuted={isVideoMuted} />
                   ) : (
                     <Image source={{ uri: card.uri }} style={styles.cardImage} contentFit="cover" />
                   )}
 
-                  {/* Top Specular Gradient / Scrim */}
-                  <View style={styles.cardTopScrim} pointerEvents="none" />
+                  {isVideo && (
+                    <View style={styles.videoHeaderBadge}>
+                      <View style={styles.videoBadge}>
+                        <Ionicons name="play" size={14} color="#FFF" />
+                        <Text style={{ color: '#FFF', fontWeight: 'bold', marginLeft: 4, fontSize: 12 }}>
+                          Видео
+                        </Text>
+                      </View>
 
-                  {/* Media Metadata Floating Badges */}
-                  <View style={styles.cardFloatingHeader}>
-                    {isVideo ? (
-                      <View style={styles.videoBadgeRow}>
-                        <View style={styles.videoPillBadge}>
-                          <Ionicons name="videocam" size={14} color="#FFFFFF" />
-                          <Text style={styles.videoPillText}>Видео</Text>
-                        </View>
-                        <TouchableOpacity
-                          activeOpacity={0.8}
-                          style={styles.soundToggleCircle}
-                          onPress={() => setIsVideoMuted(!isVideoMuted)}
-                        >
-                          <Ionicons
-                            name={isVideoMuted ? 'volume-mute' : 'volume-high'}
-                            size={16}
-                            color="#FFFFFF"
-                          />
-                        </TouchableOpacity>
-                      </View>
-                    ) : (
-                      <View style={styles.photoTypeBadge}>
-                        <Ionicons name="image-outline" size={13} color="#FFFFFF" />
-                        <Text style={styles.photoTypeText}>Фото</Text>
-                      </View>
-                    )}
-                  </View>
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        style={styles.soundButton}
+                        onPress={() => setIsVideoMuted(!isVideoMuted)}
+                      >
+                        <Ionicons name={isVideoMuted ? 'volume-mute' : 'volume-high'} size={18} color="#FFF" />
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
               );
             }}
             overlayLabels={{
               left: {
-                title: 'В КОРЗИНУ',
+                title: 'УДАЛИТЬ',
                 style: {
-                  label: styles.overlayLabelPurge,
-                  wrapper: styles.overlayWrapperLeft,
+                  label: styles.overlayLabelRed,
+                  wrapper: styles.overlayWrapperTopLeft,
                 },
               },
               right: {
                 title: 'ОСТАВИТЬ',
                 style: {
-                  label: styles.overlayLabelKeep,
-                  wrapper: styles.overlayWrapperRight,
+                  label: styles.overlayLabelGreen,
+                  wrapper: styles.overlayWrapperTopRight,
                 },
               },
             }}
-            overlayOpacityHorizontalThreshold={18}
+            overlayOpacityHorizontalThreshold={15}
             onSwipedLeft={onSwipeLeft}
             onSwipedRight={onSwipeRight}
             onSwipedAll={() => setIsFinished(true)}
@@ -760,697 +556,240 @@ export default function HomeScreen() {
             onSwiped={() => setActiveSwipe(null)}
             onSwipedAborted={() => setActiveSwipe(null)}
             cardIndex={0}
-            backgroundColor="transparent"
+            backgroundColor={'transparent'}
             stackSize={3}
-            stackSeparation={-14}
-            stackScale={4}
             disableTopSwipe={true}
             disableBottomSwipe={true}
-            marginTop={-20}
-            cardVerticalMargin={15}
+            marginTop={-15}
+            cardVerticalMargin={20}
             animateOverlayLabelsOpacity={true}
           />
         ) : (
-          <View style={styles.deckEmptyPlaceholder}>
-            <Ionicons name="images-outline" size={54} color={theme.textMuted} />
-            <Text style={[styles.deckEmptyText, { color: theme.text }]}>Медиафайлы не найдены</Text>
-            <TouchableOpacity
-              style={[styles.smallPrimaryBtn, { backgroundColor: theme.primary, marginTop: 16 }]}
-              onPress={() => setCurrentScreen('landing')}
-            >
-              <Text style={styles.smallPrimaryBtnText}>Выбрать другой альбом</Text>
-            </TouchableOpacity>
-          </View>
+          <Text style={{ color: theme.text, alignSelf: 'center', marginTop: 100 }}>Ничего не найдено</Text>
         )}
       </View>
-
-      {/* Floating Action Dock (One-Handed Navigation) */}
-      {photos.length > 0 && (
-        <View style={styles.bottomFloatingDock}>
-          {/* Action: Trash Left */}
-          <TouchableOpacity
-            activeOpacity={0.8}
-            style={[styles.dockActionButton, styles.dockTrashButton]}
-            onPress={() => swiperRef.current && swiperRef.current.swipeLeft()}
-          >
-            <Ionicons name="trash-outline" size={26} color="#EF4444" />
-          </TouchableOpacity>
-
-          {/* Action: Counter / Info */}
-          <View style={[styles.dockInfoBadge, { backgroundColor: theme.surfaceElevated, borderColor: theme.border }]}>
-            <Text style={[styles.dockInfoSub, { color: theme.textMuted }]}>СВАЙП</Text>
-            <Text style={[styles.dockInfoMain, { color: theme.text }]}>
-              {trashPhotos.length} в корзине
-            </Text>
-          </View>
-
-          {/* Action: Keep Right */}
-          <TouchableOpacity
-            activeOpacity={0.8}
-            style={[styles.dockActionButton, styles.dockKeepButton]}
-            onPress={() => swiperRef.current && swiperRef.current.swipeRight()}
-          >
-            <Ionicons name="heart" size={26} color="#10B981" />
-          </TouchableOpacity>
-        </View>
-      )}
     </SafeAreaView>
   );
 }
 
-// Стили Obsidian Frosted UI
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
+  landingContainer: { padding: 24, paddingTop: 30 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  logoText: { fontSize: 26, fontWeight: '900', letterSpacing: 0.5 },
+  mainTitle: { fontSize: 34, fontWeight: '900', lineHeight: 40, marginBottom: 25 },
+  sectionTitle: { color: '#8A8A93', fontSize: 16, marginBottom: 15, fontWeight: 'bold' },
 
-  // Landing Styles
-  landingContainer: {
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 30 : 16,
-    paddingBottom: 40,
-  },
-  glassHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    marginBottom: 20,
-  },
-  brandRow: {
+  modesContainer: { gap: 15 },
+  modeButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-  },
-  logoIconContainer: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  brandTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-  },
-  headerControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  themePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    padding: 18,
     borderRadius: 20,
-  },
-
-  heroSection: {
-    marginBottom: 30,
-  },
-  badgePill: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 12,
-    marginBottom: 12,
-  },
-  badgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  heroHeading: {
-    fontSize: 34,
-    fontWeight: '800',
-    lineHeight: 40,
-    letterSpacing: -0.8,
-    marginBottom: 8,
-  },
-  heroSubheading: {
-    fontSize: 15,
-    lineHeight: 22,
-  },
-
-  sectionTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    marginBottom: 14,
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 30,
-    marginBottom: 14,
-  },
-
-  modesContainer: {
-    gap: 14,
-  },
-  modeCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderRadius: 22,
-    borderWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 4,
-  },
-  modeIconCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 14,
-  },
-  modeTextCol: {
-    flex: 1,
-  },
-  modeRowBetween: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-    marginRight: 8,
-  },
-  modeTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: -0.3,
-  },
-  modeDesc: {
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  tagPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  tagPillText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-
-  albumsScrollContainer: {
-    paddingRight: 20,
-    gap: 14,
-  },
-  albumGlassCard: {
-    width: 145,
-    padding: 16,
-    borderRadius: 22,
     borderWidth: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
+    shadowOpacity: 0.12,
     shadowRadius: 10,
     elevation: 3,
   },
-  albumFolderIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+  modeIconBg: {
+    width: 50,
+    height: 50,
+    borderRadius: 15,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 14,
+    marginRight: 15,
   },
-  albumTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    marginBottom: 6,
-    letterSpacing: -0.2,
-  },
-  albumCountBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  albumCountText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
+  modeTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 4 },
+  modeDesc: { fontSize: 13 },
 
-  emptyAlbumsBox: {
-    padding: 24,
+  albumCard: {
+    width: 140,
+    padding: 18,
     borderRadius: 20,
+    marginRight: 15,
     borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 6,
-  },
-  emptyAlbumsText: {
-    fontSize: 14,
-    textAlign: 'center',
-    marginVertical: 12,
-  },
-  smallPrimaryBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 12,
-  },
-  smallPrimaryBtnText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 2,
   },
 
-  // Swipe Screen Styles
-  swipeTopBar: {
+  primaryButton: {
+    paddingVertical: 18,
+    borderRadius: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  primaryButtonText: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
+
+  swipeHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingTop: 10,
     zIndex: 10,
+    paddingBottom: 10,
   },
-  roundGlassNavBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    borderWidth: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  limitSegmentPill: {
-    flexDirection: 'row',
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 3,
-  },
-  segmentButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  segmentButtonText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  activeAlbumHeaderPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 16,
-    borderWidth: 1,
-    maxWidth: SCREEN_WIDTH * 0.45,
-  },
-  activeAlbumHeaderText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  counterGlassBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 14,
-    borderWidth: 1,
-  },
-  counterGlassBadgeText: {
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-  },
+  backButtonContainer: { width: 40, height: 40, justifyContent: 'center' },
+  inlineLimitContainer: { flexDirection: 'row', gap: 8 },
+  smallLimitBtn: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 14 },
 
-  deckViewport: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  deckCard: {
-    width: SCREEN_WIDTH * 0.9,
-    height: SCREEN_HEIGHT * 0.68,
+  swipeAreaContainer: { flex: 1, position: 'relative', justifyContent: 'center' },
+  sideArrowLeft: { position: 'absolute', top: '48%', left: 5, marginTop: -20, zIndex: 10 },
+  sideArrowRight: { position: 'absolute', top: '48%', right: 5, marginTop: -20, zIndex: 10 },
+
+  card: {
+    width: '90%',
+    height: '82%',
     borderRadius: 30,
     overflow: 'hidden',
     alignSelf: 'center',
-    borderWidth: 1,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.35,
-    shadowRadius: 28,
-    elevation: 12,
+    shadowOffset: { width: 0, height: 15 },
+    shadowOpacity: 0.4,
+    shadowRadius: 30,
+    elevation: 15,
+    borderWidth: 1,
     position: 'relative',
   },
-  cardImage: {
-    width: '100%',
-    height: '100%',
-  },
-  cardTopScrim: {
+  cardImage: { width: '100%', height: '100%' },
+
+  videoHeaderBadge: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 90,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-  },
-  cardFloatingHeader: {
-    position: 'absolute',
-    top: 16,
-    left: 16,
-    right: 16,
+    top: 15,
+    left: 15,
+    right: 15,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  videoBadgeRow: {
+  videoBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    width: '100%',
-  },
-  videoPillBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    backgroundColor: 'rgba(0,0,0,0.65)',
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 14,
-    gap: 5,
+    borderRadius: 15,
   },
-  videoPillText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  soundToggleCircle: {
+  soundButton: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    backgroundColor: 'rgba(0,0,0,0.65)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  photoTypeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.55)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
-    gap: 4,
-  },
-  photoTypeText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '600',
-  },
 
-  overlayLabelPurge: {
-    backgroundColor: 'rgba(239, 68, 68, 0.9)',
-    borderColor: '#FFFFFF',
-    color: '#FFFFFF',
-    borderWidth: 2,
-    borderRadius: 16,
-    fontSize: 26,
+  overlayLabelRed: {
+    backgroundColor: 'transparent',
+    borderColor: '#FF4B4B',
+    color: '#FF4B4B',
+    borderWidth: 5,
+    borderRadius: 12,
+    fontSize: 32,
     fontWeight: '900',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    overflow: 'hidden',
-    transform: [{ rotate: '-12deg' }],
+    padding: 10,
+    transform: [{ rotate: '-15deg' }],
   },
-  overlayWrapperLeft: {
+  overlayWrapperTopLeft: {
     flexDirection: 'column',
     alignItems: 'flex-start',
     justifyContent: 'flex-start',
     marginTop: 40,
     marginLeft: 30,
   },
-  overlayLabelKeep: {
-    backgroundColor: 'rgba(16, 185, 129, 0.9)',
-    borderColor: '#FFFFFF',
-    color: '#FFFFFF',
-    borderWidth: 2,
-    borderRadius: 16,
-    fontSize: 26,
+
+  overlayLabelGreen: {
+    backgroundColor: 'transparent',
+    borderColor: '#4CD964',
+    color: '#4CD964',
+    borderWidth: 5,
+    borderRadius: 12,
+    fontSize: 32,
     fontWeight: '900',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    overflow: 'hidden',
-    transform: [{ rotate: '12deg' }],
+    padding: 10,
+    transform: [{ rotate: '15deg' }],
   },
-  overlayWrapperRight: {
+  overlayWrapperTopRight: {
     flexDirection: 'column',
     alignItems: 'flex-end',
     justifyContent: 'flex-start',
     marginTop: 40,
-    marginRight: 30,
+    marginLeft: -30,
   },
 
-  deckEmptyPlaceholder: {
-    alignItems: 'center',
-    padding: 30,
-  },
-  deckEmptyText: {
-    fontSize: 18,
-    fontWeight: '700',
-    marginTop: 12,
-  },
-
-  // Bottom Floating Action Dock
-  bottomFloatingDock: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 30,
-    paddingBottom: Platform.OS === 'android' ? 20 : 10,
-    paddingTop: 10,
-  },
-  dockActionButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2,
-    shadowRadius: 16,
-    elevation: 6,
-  },
-  dockTrashButton: {
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(239, 68, 68, 0.4)',
-  },
-  dockKeepButton: {
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(16, 185, 129, 0.4)',
-  },
-  dockInfoBadge: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 16,
-    borderWidth: 1,
-    alignItems: 'center',
-  },
-  dockInfoSub: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.6,
-  },
-  dockInfoMain: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-
-  // Finish Screen Styles
-  finishIconDisc: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  finishTitle: {
-    fontSize: 32,
-    fontWeight: '800',
-    letterSpacing: -0.6,
-    marginBottom: 6,
-    textAlign: 'center',
-  },
-  finishSubtitle: {
-    fontSize: 15,
-    marginBottom: 30,
-    textAlign: 'center',
-  },
-  finishStatsGrid: {
-    flexDirection: 'row',
-    gap: 14,
-    width: '100%',
-    marginBottom: 30,
-  },
-  finishStatCard: {
+  statsRow: { flexDirection: 'row', gap: 15, width: '100%', marginVertical: 20 },
+  statCard: {
     flex: 1,
     padding: 20,
-    borderRadius: 22,
+    borderRadius: 16,
     alignItems: 'center',
     borderWidth: 1,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  miniStatusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginBottom: 10,
-  },
-  finishStatNumber: {
-    fontSize: 32,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-  },
-  finishStatLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    marginTop: 4,
-  },
-  finishStatSize: {
-    fontSize: 14,
-    fontWeight: '700',
-    marginTop: 6,
-  },
-  ctaLargeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-    paddingVertical: 18,
-    borderRadius: 18,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    elevation: 6,
-  },
-  ctaLargeButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: -0.2,
-  },
-  returnHomeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 18,
-    padding: 10,
-  },
-  returnHomeText: {
-    fontSize: 15,
-    fontWeight: '600',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
   },
 
-  // Modal Styles
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    justifyContent: 'flex-end',
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' },
+  modalContent: {
+    height: '85%',
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    paddingHorizontal: 24,
+    paddingTop: 24,
   },
-  modalSheet: {
-    height: '84%',
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    paddingHorizontal: 22,
-    paddingTop: 12,
-    paddingBottom: 20,
-  },
-  modalDragHandle: {
-    width: 44,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    alignSelf: 'center',
-    marginBottom: 14,
-  },
-  modalHeaderRow: {
+  modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 18,
+    marginBottom: 15,
   },
-  modalTitleText: {
-    fontSize: 20,
-    fontWeight: '800',
-    letterSpacing: -0.3,
-  },
-  modalSubText: {
-    fontSize: 12,
-    marginTop: 3,
-  },
-  modalCloseButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  trashGrid: {
+  modalTitle: { fontSize: 22, fontWeight: 'bold' },
+
+  gridContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    paddingBottom: 20,
+    paddingBottom: 80,
   },
-  trashGridItem: {
+  gridItem: {
     width: '31%',
     height: 110,
-    borderRadius: 14,
+    borderRadius: 12,
     overflow: 'hidden',
     marginBottom: 12,
     position: 'relative',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
-  trashGridImage: {
-    width: '100%',
-    height: '100%',
-  },
-  trashSizeBadge: {
+
+  gridImage: { width: '100%', height: '100%' },
+  sizeBadge: {
     position: 'absolute',
-    bottom: 5,
-    right: 5,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    bottom: 4,
+    right: 4,
+    backgroundColor: 'rgba(0,0,0,0.8)',
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 6,
+    borderRadius: 8,
   },
-  trashSizeBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 9,
-    fontWeight: '700',
-  },
-  trashActionBadge: {
+  deleteBadgeTopRight: {
     position: 'absolute',
-    top: 5,
-    right: 5,
-    backgroundColor: 'rgba(16, 185, 129, 0.9)',
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    top: 4,
+    right: 4,
+    backgroundColor: '#FF4B4B',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  emptyTrashState: {
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 40,
-  },
-  emptyTrashText: {
-    fontSize: 15,
-    marginTop: 10,
-  },
-  modalBottomBar: {
-    paddingTop: 12,
-    paddingBottom: Platform.OS === 'android' ? 10 : 20,
   },
 });
