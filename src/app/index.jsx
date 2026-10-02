@@ -26,69 +26,81 @@ const formatBytes = (bytes) => {
 };
 
 // Отдельный компонент для корректной работы видеоплеера в карусели
-function SwiperVideoItem({ asset, uri, isMuted }) {
-  const initialUri = asset?.localUri || (uri && !uri.startsWith('ph://') ? uri : null);
-  const [playableUri, setPlayableUri] = useState(initialUri);
+function SwiperVideoItem({ uri, isMuted }) {
+  const [isPlaying, setIsPlaying] = useState(true);
 
-  const targetAsset = asset || (uri ? { uri } : null);
-
-  useEffect(() => {
-    let isMounted = true;
-    async function resolveLocalUri() {
-      if (asset?.localUri) {
-        setPlayableUri(asset.localUri);
-        return;
-      }
-      if (!targetAsset) return;
-      try {
-        const info = await MediaLibrary.getAssetInfoAsync(targetAsset);
-        if (isMounted) {
-          const resolved = info?.localUri || targetAsset?.uri;
-          if (asset) asset.localUri = resolved;
-          setPlayableUri(resolved);
-        }
-      } catch (e) {
-        if (isMounted && targetAsset?.uri) {
-          setPlayableUri(targetAsset.uri);
-        }
-      }
-    }
-
-    resolveLocalUri();
-    return () => {
-      isMounted = false;
-    };
-  }, [asset?.id, uri]);
-
-  const player = useVideoPlayer(playableUri || null, (playerInstance) => {
+  const player = useVideoPlayer(uri, (playerInstance) => {
     playerInstance.loop = true;
     playerInstance.muted = isMuted;
-    if (playableUri) {
-      playerInstance.play();
-    }
+    try {
+      playerInstance.audioMixingMode = 'mixWithOthers';
+    } catch (e) {}
+    playerInstance.play();
   });
 
-  // Обновляем состояние звука и источника при изменении
+  // Автозапуск при готовности к воспроизведению и отслеживание статуса
+  useEffect(() => {
+    if (!player) return;
+
+    if (player.status === 'readyToPlay') {
+      player.play();
+      setIsPlaying(true);
+    }
+
+    const sub = player.addListener('statusChange', ({ status }) => {
+      if (status === 'readyToPlay') {
+        player.play();
+        setIsPlaying(true);
+      }
+    });
+
+    const playSub = player.addListener('playingChange', ({ isPlaying: playing }) => {
+      setIsPlaying(playing);
+    });
+
+    return () => {
+      sub?.remove();
+      playSub?.remove();
+    };
+  }, [player]);
+
+  // Обновляем состояние звука при переключении кнопки
   useEffect(() => {
     if (player) {
       player.muted = isMuted;
-      if (playableUri) {
-        if (player.replace) {
-          player.replace(playableUri);
-        }
-        player.play();
-      }
     }
-  }, [isMuted, player, playableUri]);
+  }, [isMuted, player]);
+
+  const togglePlay = () => {
+    if (!player) return;
+    if (player.playing) {
+      player.pause();
+      setIsPlaying(false);
+    } else {
+      player.play();
+      setIsPlaying(true);
+    }
+  };
 
   return (
-    <VideoView
+    <TouchableOpacity
+      activeOpacity={0.95}
       style={styles.cardImage}
-      player={player}
-      allowsFullscreen={false}
-      nativeControls={false}
-      contentFit="cover"
-    />
+      onPress={togglePlay}
+    >
+      <VideoView
+        style={styles.cardImage}
+        player={player}
+        allowsFullscreen={false}
+        nativeControls={false}
+        contentFit="cover"
+      />
+      {!isPlaying && (
+        <View style={styles.videoPausedOverlay} pointerEvents="none">
+          <Ionicons name="play" size={54} color="rgba(255, 255, 255, 0.9)" />
+        </View>
+      )}
+    </TouchableOpacity>
   );
 }
 
@@ -100,7 +112,7 @@ export default function HomeScreen() {
   const [albums, setAlbums] = useState([]);
   const [isLoadingAlbums, setIsLoadingAlbums] = useState(true);
 
-  const [activeMode, setActiveMode] = useState({ type: 'all', title: 'Все фото' });
+  const [activeMode, setActiveMode] = useState({ type: 'all', title: 'Вся галерея' });
   const [activePhotoLimit, setActivePhotoLimit] = useState(100);
 
   const [photos, setPhotos] = useState([]);
@@ -268,19 +280,6 @@ export default function HomeScreen() {
         }
 
         const finalPhotos = selectedAssets.slice(0, limit);
-
-        // Предварительно разрешаем localUri для первых видео в очереди
-        finalPhotos.slice(0, 5).forEach(async (asset) => {
-          if (asset.mediaType === 'video' && !asset.localUri) {
-            try {
-              const info = await MediaLibrary.getAssetInfoAsync(asset);
-              if (info?.localUri) {
-                asset.localUri = info.localUri;
-              }
-            } catch (e) {}
-          }
-        });
-
         setPhotos(finalPhotos);
       } catch (err) {
         console.log('Ошибка загрузки медиа', err);
@@ -381,14 +380,14 @@ export default function HomeScreen() {
             <TouchableOpacity
               activeOpacity={0.8}
               style={[styles.modeButton, { backgroundColor: theme.surface, borderColor: theme.cardBorder }]}
-              onPress={() => loadPhotos({ type: 'all', title: 'Все фото' }, 100)}
+              onPress={() => loadPhotos({ type: 'all', title: 'Вся галерея' }, 100)}
             >
               <View style={[styles.modeIconBg, { backgroundColor: 'rgba(163, 123, 255, 0.15)' }]}>
                 <Ionicons name="images" size={24} color={theme.primary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.modeTitle, { color: theme.text }]}>Все фото</Text>
-                <Text style={[styles.modeDesc, { color: theme.textMuted }]}>Случайные фото из галереи</Text>
+                <Text style={[styles.modeTitle, { color: theme.text }]}>Вся галерея</Text>
+                <Text style={[styles.modeDesc, { color: theme.textMuted }]}>Случайные фото и видео</Text>
               </View>
             </TouchableOpacity>
 
@@ -634,9 +633,12 @@ export default function HomeScreen() {
               const isVideo = card.mediaType === 'video';
 
               return (
-                <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.cardBorder }]}>
+                <View
+                  key={card.id || card.uri}
+                  style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.cardBorder }]}
+                >
                   {isVideo ? (
-                    <SwiperVideoItem asset={card} uri={card.uri} isMuted={isVideoMuted} />
+                    <SwiperVideoItem key={card.id || card.uri} uri={card.uri} isMuted={isVideoMuted} />
                   ) : (
                     <Image source={{ uri: card.uri }} style={styles.cardImage} contentFit="cover" />
                   )}
@@ -686,6 +688,7 @@ export default function HomeScreen() {
             onSwiped={() => setActiveSwipe(null)}
             onSwipedAborted={() => setActiveSwipe(null)}
             cardIndex={0}
+            keyExtractor={(card) => (card ? card.id || card.uri : Math.random().toString())}
             backgroundColor={'transparent'}
             stackSize={3}
             disableTopSwipe={true}
@@ -816,6 +819,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.65)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  videoPausedOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
   },
 
   overlayLabelRed: {
