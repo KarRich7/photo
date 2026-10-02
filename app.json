@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "Photocleaner",
+    "slug": "photo",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.karim.photocleaner",
+      "infoPlist": {
+        "UIBackgroundModes": ["audio"],
+        "NSPhotoLibraryUsageDescription": "PhotoDrop needs access to your photos to help you clean up and manage storage.",
+        "NSPhotoLibraryAddUsageDescription": "PhotoDrop needs permission to save and organize photos in your library.",
+        "UILaunchScreen": {
+          "UIColorName": "LaunchBackgroundColor"
+        }
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#000000"
+      },
+      "package": "com.karim.photocleaner"
+    },
+    "plugins": [
+      [
+        "expo-video",
+        {
+          "supportsBackgroundPlayback": true
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "PhotoDrop needs access to your photos to help you clean up and manage storage.",
+          "savePhotosPermission": "PhotoDrop needs permission to save and organize photos in your library.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ]
+    ]
+  }
+}

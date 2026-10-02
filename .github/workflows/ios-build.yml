@@ -1,0 +1,37 @@
+name: Build iOS IPA for Sideloadly
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: 📥 Клонирование репозитория
+        uses: actions/checkout@v4
+
+      - name: 🟢 Настройка Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 🛠 Настройка Xcode 16.2
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.2'
+
+      - name: 🚀 Запуск сборки IPA
+        run: python3 run_build.py
+
+      - name: 📤 Загрузка IPA в артефакты
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhotoDrop-App
+          path: PhotoDrop.ipa
+          retention-days: 14
