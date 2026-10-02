@@ -6,11 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#000000"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.karim.photocleaner",
@@ -18,9 +13,7 @@
         "UIBackgroundModes": ["audio"],
         "NSPhotoLibraryUsageDescription": "PhotoDrop needs access to your photos to help you clean up and manage storage.",
         "NSPhotoLibraryAddUsageDescription": "PhotoDrop needs permission to save and organize photos in your library.",
-        "UILaunchScreen": {
-          "UIColorName": "LaunchBackgroundColor"
-        }
+        "UILaunchScreen": {}
       }
     },
     "android": {

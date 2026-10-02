@@ -63,8 +63,58 @@ run("npm install --legacy-peer-deps")
 # 4. Генерация нативного проекта iOS через Expo Prebuild
 run("npx expo prebuild --platform ios --clean")
 
-# 5. Безопасная настройка Info.plist через plistlib (нативный UILaunchScreen без повреждения файлов проекта)
-print("\n🩹 Проверка и настройка UILaunchScreen в Info.plist...")
+# 5. Исключение Storyboard из проекта для предотвращения ошибок ibtool (iOS Platform Not Installed)
+print("\n🩹 Проверка Storyboard и настройка нативного UILaunchScreen...")
+
+# 5.1. Удаляем физические файлы storyboard
+for root, _, files in os.walk("ios"):
+    for file in files:
+        if file.endswith(".storyboard"):
+            sb_path = os.path.join(root, file)
+            os.remove(sb_path)
+            print(f"🗑 Удален файл storyboard: {sb_path}")
+
+# 5.2. Безопасно очищаем ссылки на storyboard в Xcode проекте через встроенный парсер Node
+for root, _, files in os.walk("ios"):
+    if "project.pbxproj" in files:
+        pbx_path = os.path.join(root, "project.pbxproj").replace("\\", "/")
+        node_script = f"""
+const fs = require('fs');
+let parsed = false;
+try {{
+    let xcodeModule;
+    try {{
+        xcodeModule = require('@expo/config-plugins/node_modules/xcode');
+    }} catch (e) {{
+        xcodeModule = require('xcode');
+    }}
+    if (xcodeModule) {{
+        const project = xcodeModule.project('{pbx_path}');
+        project.parseSync();
+        project.removeResourceFile('SplashScreen.storyboard');
+        fs.writeFileSync('{pbx_path}', project.writeSync());
+        console.log('✅ SplashScreen.storyboard удален из pbxproj через официальный парсер Xcode');
+        parsed = true;
+    }}
+}} catch (err) {{
+    // fallback
+}}
+
+if (!parsed) {{
+    let content = fs.readFileSync('{pbx_path}', 'utf8');
+    content = content.replace(/UILaunchStoryboardName = [^;]+;/g, 'UILaunchStoryboardName = "";');
+    fs.writeFileSync('{pbx_path}', content);
+    console.log('✅ UILaunchStoryboardName очищен в {pbx_path}');
+}}
+"""
+        try:
+            res = subprocess.run(["node", "-e", node_script], capture_output=True, text=True)
+            if res.stdout:
+                print(res.stdout.strip())
+        except Exception as e:
+            print(f"⚠️ Ошибка обработки project.pbxproj: {e}")
+
+# 5.3. Безопасная настройка Info.plist через plistlib (нативный UILaunchScreen)
 for root, _, files in os.walk("ios"):
     if "Info.plist" in files:
         plist_path = os.path.join(root, "Info.plist")
@@ -72,9 +122,9 @@ for root, _, files in os.walk("ios"):
             with open(plist_path, "rb") as fp:
                 pl = plistlib.load(fp)
             
-            # Обеспечиваем нативную поддержку UILaunchScreen
-            if "UILaunchScreen" not in pl:
-                pl["UILaunchScreen"] = {}
+            pl["UILaunchScreen"] = {}
+            if "UILaunchStoryboardName" in pl:
+                del pl["UILaunchStoryboardName"]
             
             with open(plist_path, "wb") as fp:
                 plistlib.dump(pl, fp)
